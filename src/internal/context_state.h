@@ -32,6 +32,12 @@ struct ContextState {
     // TakeException.
     const struct OpaqueJSValue* pendingException = nullptr;
 
+    // Module record from the most recent moduleLoaderEvaluate call.
+    // JSValueProtect'd while held so EvalModule can retrieve the namespace
+    // even when loadAndEvaluateModule returns undefined. Cleared on context
+    // teardown.
+    const struct OpaqueJSValue* lastModuleRecord = nullptr;
+
     // Native modules registered on this context, keyed by module name.
     std::unordered_map<std::string, std::unique_ptr<NativeModuleEntry>> nativeModules;
 

@@ -79,9 +79,12 @@ set_target_properties(ejsc PROPERTIES
     CXX_STANDARD_REQUIRED ON
 )
 
+add_subdirectory(extra)
+
 if(EJSC_BUILD_EXAMPLES)
     add_subdirectory(examples/hello)
     add_subdirectory(examples/native_module)
+    add_subdirectory(examples/timers)
 endif()
 
 if(EJSC_BUILD_TESTS)

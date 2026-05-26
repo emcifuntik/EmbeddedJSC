@@ -6,6 +6,7 @@
 
 #include <JavaScriptCore/APICast.h>
 #include <JavaScriptCore/ArgList.h>
+#include <JavaScriptCore/JavaScript.h>
 #include <JavaScriptCore/Completion.h>
 #include <JavaScriptCore/Identifier.h>
 #include <JavaScriptCore/JSGlobalObject.h>
@@ -150,6 +151,21 @@ JSC::JSValue ModuleLoaderEvaluate(JSC::JSGlobalObject* globalObject,
                                   JSC::JSValue scriptFetcher,
                                   JSC::JSValue sentValue,
                                   JSC::JSValue resumeMode) {
+    // Capture the module record so Context::EvalModule can recover the
+    // namespace object even when loadAndEvaluateModule's promise resolves to
+    // undefined (current JSC behaviour for source-based modules).
+    if (ContextState* state = StateForGlobalObject(globalObject)) {
+        JSValueRef recordRef = ::toRef(globalObject, moduleRecord);
+        JSGlobalContextRef ctxRef = ::toGlobalRef(globalObject);
+        if (state->lastModuleRecord) {
+            JSValueUnprotect(ctxRef, state->lastModuleRecord);
+        }
+        if (recordRef) {
+            JSValueProtect(ctxRef, recordRef);
+        }
+        state->lastModuleRecord = recordRef;
+    }
+
     // Default evaluator handles both source-based and synthetic module records.
     return moduleLoader->evaluateNonVirtual(globalObject, key, moduleRecord,
                                             scriptFetcher, sentValue, resumeMode);

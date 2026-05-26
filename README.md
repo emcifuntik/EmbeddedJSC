@@ -5,7 +5,8 @@ QuickJS-class developer experience: register native functions, declare
 native ES modules, evaluate scripts — all from C++, with **zero JS
 bootstrap code**.
 
-Tracking and roadmap live in [PLAN.md](PLAN.md).
+Tracking and roadmap live in [PLAN.md](PLAN.md). For a real integration —
+game engine, daemon, worker — read [EMBEDDING.md](EMBEDDING.md).
 
 ## Status
 
@@ -45,6 +46,8 @@ Artifacts land in `BIN/Debug/`:
 - `ejsc_native_module.exe` — registers a `math` native module and
   runs `import { add, sub } from 'math'`. Run from the directory
   containing `test.js` (CMake copies it next to the executable).
+- `ejsc_timers.exe` — drives the optional `ejsc::extra::TimerManager`
+  helper with `setTimeout` / `setInterval` / `clearInterval`.
 - `ejsc_test_eval.exe` — assertion-based test runner.
 
 ## API at a glance
@@ -112,7 +115,10 @@ No JS strings, no `export const x = …` stubs.
 ## Out of scope (v1)
 
 - Cross-platform (Windows-only for now).
-- Timers (`setTimeout`, etc.).
+- Timers are not in the core library — see
+  [EMBEDDING.md](EMBEDDING.md#timers--you-must-implement-these). The
+  optional `ejsc::extra::TimerManager` is a reference implementation that
+  ships under [extra/](extra/).
 - Promise rejection tracking, async stack tooling.
 - Class binding API with prototype chains.
 - TypedArray / ArrayBuffer helpers.

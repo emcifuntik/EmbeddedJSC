@@ -71,6 +71,29 @@ int main() {
         assert(cap.ToNumber().value() == 42.0);
     }
 
+    // 6. EvalModule returns a callable namespace for the host (gamedev case).
+    //    Caller can hold the namespace, then call exported functions per frame.
+    {
+        auto rt3 = ejsc::Runtime{};
+        auto ctx3 = rt3.NewContext();
+        auto ns = ctx3.EvalModule(
+            "export function tick() { return 7 }; export const greeting = 'hi'",
+            "t6.mjs");
+        assert(!ctx3.HasException());
+        assert(ns.IsObject());
+
+        auto tick = ns.GetProperty("tick");
+        assert(tick.IsFunction());
+
+        auto result = tick.Call(ejsc::Value::Undefined(ctx3), {});
+        assert(result.IsNumber());
+        assert(result.ToNumber().value() == 7.0);
+
+        auto greeting = ns.GetProperty("greeting");
+        assert(greeting.IsString());
+        assert(greeting.ToString().value() == "hi");
+    }
+
     std::cout << "test_eval ok\n";
     return 0;
 }

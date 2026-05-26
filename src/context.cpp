@@ -18,6 +18,8 @@
 #include <JavaScriptCore/JSGlobalObject.h>
 #include <JavaScriptCore/JSInternalPromise.h>
 #include <JavaScriptCore/JSLock.h>
+#include <JavaScriptCore/JSModuleLoader.h>
+#include <JavaScriptCore/JSModuleNamespaceObject.h>
 #include <JavaScriptCore/JSPromise.h>
 #include <JavaScriptCore/JSString.h>
 #include <JavaScriptCore/SourceCode.h>
@@ -96,6 +98,11 @@ Context::~Context() {
         s->pendingException = nullptr;
     }
 
+    if (s->lastModuleRecord) {
+        JSValueUnprotect(s->ctxRef, s->lastModuleRecord);
+        s->lastModuleRecord = nullptr;
+    }
+
     {
         std::lock_guard<std::mutex> lock(s->modulesMutex);
         s->nativeModules.clear();
@@ -168,7 +175,23 @@ Value Context::EvalModule(std::string_view code, std::string_view key) {
     if (status == JSPromise::Status::Pending) {
         return Value::Undefined(*this);
     }
-    return Value::Adopt(*this, toRef(s->globalObject, promise->result()));
+
+    JSValue resolved = promise->result();
+    if (resolved.isObject()) {
+        return Value::Adopt(*this, toRef(s->globalObject, resolved));
+    }
+
+    // Some JSC builds resolve loadAndEvaluateModule's promise with undefined
+    // for source-based modules. Fall back to the captured module record.
+    if (s->lastModuleRecord) {
+        JSValue record = toJS(s->globalObject, s->lastModuleRecord);
+        if (JSModuleLoader* loader = s->globalObject->moduleLoader()) {
+            if (JSModuleNamespaceObject* ns = loader->getModuleNamespaceObject(s->globalObject, record)) {
+                return Value::Adopt(*this, toRef(ns));
+            }
+        }
+    }
+    return Value::Undefined(*this);
 }
 
 void Context::SetGlobal(std::string_view name, const Value& v) {
