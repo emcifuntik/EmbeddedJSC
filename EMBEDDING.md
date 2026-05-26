@@ -209,6 +209,77 @@ if (Vec3* p = Vec3Cls.Unwrap(wrapped)) {
 if (Vec3Cls.IsInstance(someValue)) { /* ... */ }
 ```
 
+### Accessor properties
+
+Use `Property(name, getter)` for read-only and `Property(name, getter,
+setter)` for read-write. The getter receives `const T&`; the setter
+receives `T&` and the assigned `Value`.
+
+```cpp
+.Property("x",
+    [](const Vec3& s, ejsc::Context& c) { return ejsc::Value::Number(c, s.x); },
+    [](Vec3& s, ejsc::Context&, const ejsc::Value& v) { s.x = v.ToNumber().value_or(0); })
+.Property("length",          // read-only computed
+    [](const Vec3& s, ejsc::Context& c) {
+        return ejsc::Value::Number(c, std::sqrt(s.x*s.x + s.y*s.y + s.z*s.z));
+    })
+```
+
+From JS:
+
+```js
+const v = new Vec3(1, 2, 2);
+v.x = 10;                        // setter
+console.log(v.x, v.length);      // getters
+v.length = 999;                  // TypeError: ejsc: read-only property 'length'
+```
+
+Accessors take precedence over methods of the same name (the class-level
+`getProperty` callback fires before prototype-chain lookup). Don't register
+both with the same key.
+
+### Inheritance
+
+Single inheritance with `Extends`:
+
+```cpp
+struct Entity { std::string name; double x, y, z; };
+struct Player : Entity { int health; };
+
+auto EntityCls = ctx.NewClass<Entity>("Entity")
+    .Constructor(...)
+    .Property("name", ..., ...)
+    .Property("x",    ..., ...)
+    .Method("describe", ...)
+    .Build();
+
+auto PlayerCls = ctx.NewClass<Player>("Player")
+    .Extends(EntityCls)                 // parent must be Built() first
+    .Constructor(...)
+    .Property("health", ..., ...)
+    .Method("damage", ...)
+    .Build();
+```
+
+What you get:
+
+| Behaviour                                     | How                                                          |
+|-----------------------------------------------|--------------------------------------------------------------|
+| `player.x = 10` (inherited setter)            | accessor walk finds `x` on Entity, casts `Player*` to `Entity*` |
+| `player.describe()` (inherited method)        | prototype chain: Player.prototype.__proto__ === Entity.prototype |
+| `player instanceof Entity`                    | `Entity.prototype` is in `player`'s prototype chain          |
+| `EntityCls.Unwrap(playerValue) -> Entity*`    | `JSValueIsObjectOfClass` walks `parentClass`; pointer is cast up |
+
+Constraints:
+
+- **Single inheritance only.** Don't try to model multiple base classes via
+  `Extends`. Pick one parent.
+- **The cast is `static_cast<Parent*>(static_cast<T*>(p))`.** Correct for
+  normal inheritance (including non-zero base offsets). Not safe for virtual
+  inheritance — avoid that pattern.
+- **Parent must already be `Build()`-ed** before `Extends`. The API enforces
+  this at runtime; passing an unbuilt `Class<Parent>` throws.
+
 ### Method `this`
 
 A bound method that's called with the wrong `this` (e.g.
@@ -226,13 +297,15 @@ Registration ends when the Context is destroyed.
 
 ### Not in v1
 
-- **Accessor properties** (getter/setter pairs accessed as `v.x` instead of
-  `v.x()`). Use method-style `getX()` / `setX()` for now.
-- **Inheritance.** Each `Class<T>` is independent; there's no parent-class
-  registration.
+- **Multiple inheritance.** `Extends` accepts one parent. Compose by
+  ownership (a Player *has* a Health, not *is a* Health) for everything else.
+- **Virtual inheritance.** Cast chain uses `static_cast`, which is incorrect
+  for virtual bases.
 - **Static / class-level methods.** Attach them to the constructor function
-  with `Vec3Cls.ConstructorValue().SetProperty("staticName", fn)` after
+  with `MyCls.ConstructorValue().SetProperty("staticName", fn)` after
   building, if you need them.
+- **Symbol-keyed properties / `Symbol.iterator`.** Use methods for iteration
+  helpers; full Symbol support is future work.
 
 ## Calling JS from C++
 

@@ -120,6 +120,81 @@ int main() {
         cx.Eval("({}).__proto__ = Box.prototype; b.get.call({})", "cls-3");
         assert(cx.HasException());
         (void)cx.TakeException();
+
+        // instanceof works on the constructor function.
+        auto isInst = cx.Eval("b instanceof Box", "cls-4");
+        assert(isInst.IsBool() && isInst.ToBool().value() == true);
+    }
+
+    // 6b. Accessor properties (read-write + read-only) and inheritance.
+    {
+        struct Base { int v = 0; };
+        struct Derived : Base { int extra = 99; };
+
+        auto rtY = ejsc::Runtime{};
+        auto cy  = rtY.NewContext();
+
+        auto BaseCls = cy.NewClass<Base>("Base")
+            .Constructor([](ejsc::Context&, std::span<const ejsc::Value>) -> Base* { return new Base; })
+            .Property("v",
+                [](const Base& s, ejsc::Context& c) { return ejsc::Value::Number(c, s.v); },
+                [](Base& s, ejsc::Context&, const ejsc::Value& val) {
+                    s.v = (int)val.ToNumber().value_or(0);
+                })
+            .Property("doubled",  // read-only computed
+                [](const Base& s, ejsc::Context& c) { return ejsc::Value::Number(c, s.v * 2); })
+            .Method("describe", [](Base& s, ejsc::Context& c, auto) {
+                return ejsc::Value::String(c, "base(" + std::to_string(s.v) + ")");
+            })
+            .Build();
+
+        auto DerivedCls = cy.NewClass<Derived>("Derived")
+            .Extends(BaseCls)
+            .Constructor([](ejsc::Context&, std::span<const ejsc::Value>) -> Derived* { return new Derived; })
+            .Property("extra",
+                [](const Derived& s, ejsc::Context& c) { return ejsc::Value::Number(c, s.extra); },
+                [](Derived& s, ejsc::Context&, const ejsc::Value& val) {
+                    s.extra = (int)val.ToNumber().value_or(0);
+                })
+            .Build();
+
+        cy.SetGlobal("Base", BaseCls.ConstructorValue());
+        cy.SetGlobal("Derived", DerivedCls.ConstructorValue());
+
+        // Write to inherited accessor.
+        auto r1 = cy.Eval("const d = new Derived(); d.v = 10; d.v + d.doubled", "acc-1");
+        assert(!cy.HasException());
+        assert(r1.IsNumber() && r1.ToNumber().value() == 30.0);   // 10 + 10*2
+
+        // Read-only property setter throws.
+        cy.Eval("(new Base()).doubled = 5", "acc-2");
+        assert(cy.HasException());
+        auto exc = cy.TakeException().ToString().value_or("");
+        assert(exc.find("read-only") != std::string::npos);
+
+        // Own + inherited methods both callable on a derived instance.
+        auto r3 = cy.Eval("const d2 = new Derived(); d2.v = 7; d2.describe()", "acc-3");
+        assert(!cy.HasException());
+        assert(r3.IsString() && r3.ToString().value() == "base(7)");
+
+        // instanceof walks the chain.
+        auto r4 = cy.Eval("const d3 = new Derived(); [d3 instanceof Derived, d3 instanceof Base]", "acc-4");
+        assert(!cy.HasException());
+        assert(r4.IsObject());
+        assert(r4.GetProperty("0").ToBool().value() == true);
+        assert(r4.GetProperty("1").ToBool().value() == true);
+
+        // Cross-class Unwrap: a Derived value yields a valid Base* AND a valid Derived*.
+        auto dVal = cy.Eval("const d4 = new Derived(); d4.v = 11; d4.extra = 22; d4", "acc-5");
+        assert(!cy.HasException());
+        Base*    asBase    = BaseCls.Unwrap(dVal);
+        Derived* asDerived = DerivedCls.Unwrap(dVal);
+        assert(asBase && asBase->v == 11);
+        assert(asDerived && asDerived->v == 11 && asDerived->extra == 22);
+
+        // Reverse direction fails.
+        auto bVal = cy.Eval("new Base()", "acc-6");
+        assert(DerivedCls.Unwrap(bVal) == nullptr);
     }
 
     // 7. EvalModule returns a callable namespace for the host (gamedev case).
