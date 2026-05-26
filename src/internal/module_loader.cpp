@@ -5,6 +5,7 @@
 #include <unordered_map>
 
 #include <JavaScriptCore/APICast.h>
+#include <JavaScriptCore/ArgList.h>
 #include <JavaScriptCore/Completion.h>
 #include <JavaScriptCore/Identifier.h>
 #include <JavaScriptCore/JSGlobalObject.h>
@@ -13,17 +14,22 @@
 #include <JavaScriptCore/JSSourceCode.h>
 #include <JavaScriptCore/JSString.h>
 #include <JavaScriptCore/SourceCode.h>
+#include <JavaScriptCore/SourceOrigin.h>
+#include <JavaScriptCore/SourceProvider.h>
 #include <JavaScriptCore/Symbol.h>
 #include <JavaScriptCore/VM.h>
 
+#include <wtf/Function.h>
 #include <wtf/URL.h>
+#include <wtf/Vector.h>
+#include <wtf/text/MakeString.h>
 
 namespace ejsc::internal {
 
 namespace {
 
-// Map of JSGlobalObject -> ContextState. Kept in this TU so the loader and the
-// Context can both reach the registry without exposing it publicly.
+// Map of JSGlobalObject -> ContextState. Defined in this TU so the loader and
+// Context's ctor/dtor both reach the registry without exposing it publicly.
 std::unordered_map<JSC::JSGlobalObject*, ContextState*>& StateMap() {
     static std::unordered_map<JSC::JSGlobalObject*, ContextState*> m;
     return m;
@@ -59,7 +65,6 @@ JSC::Identifier ModuleLoaderResolve(JSC::JSGlobalObject* globalObject,
     JSC::VM& vm = globalObject->vm();
 
     if (key.isSymbol()) {
-        // Internal symbol key (used by JSC to track an already-known module).
         return JSC::Identifier::fromUid(JSC::asSymbol(key)->privateName());
     }
     if (key.isString()) {
@@ -77,9 +82,7 @@ JSC::JSInternalPromise* ModuleLoaderFetch(JSC::JSGlobalObject* globalObject,
     auto* promise = JSC::JSInternalPromise::create(vm, globalObject->internalPromiseStructure());
 
     if (key.isSymbol()) {
-        // The main module's source is provided inline via loadAndEvaluateModule,
-        // so a fetch by symbol means JSC is asking for a module that we have
-        // no source for.
+        // Main module's source is provided inline via loadAndEvaluateModule.
         promise->reject(vm, globalObject,
                         JSC::createError(globalObject, "ejsc: cannot fetch module by symbol key"_s));
         return promise;
@@ -94,23 +97,49 @@ JSC::JSInternalPromise* ModuleLoaderFetch(JSC::JSGlobalObject* globalObject,
     WTF::String keyStr = key.toWTFString(globalObject);
     std::string keyUtf8 = keyStr.utf8().data();
 
-    // Native module path is handled in the synthetic-module spike (step 6).
-    // For now, every non-symbol fetch is a miss until the spike fills this in.
     ContextState* state = StateForGlobalObject(globalObject);
-    if (state) {
-        std::lock_guard<std::mutex> lock(state->modulesMutex);
-        if (state->nativeModules.count(keyUtf8)) {
-            // TODO(spike): turn nativeModules[keyUtf8] into a JSSourceCode for a
-            // synthetic module, or build the AbstractModuleRecord directly.
-            promise->reject(vm, globalObject,
-                            JSC::createError(globalObject,
-                                             WTF::makeString("ejsc: native module fetch unimplemented: "_s, keyStr)));
-            return promise;
-        }
+    if (!state) {
+        promise->reject(vm, globalObject,
+                        JSC::createError(globalObject, "ejsc: context state missing"_s));
+        return promise;
     }
 
-    promise->reject(vm, globalObject,
-                    JSC::createError(globalObject, WTF::makeString("ejsc: module not found: "_s, keyStr)));
+    bool isNative = false;
+    {
+        std::lock_guard<std::mutex> lock(state->modulesMutex);
+        isNative = state->nativeModules.count(keyUtf8) > 0;
+    }
+
+    if (!isNative) {
+        promise->reject(vm, globalObject,
+                        JSC::createError(globalObject, WTF::makeString("ejsc: module not found: "_s, keyStr)));
+        return promise;
+    }
+
+    // Native module: build a synthetic source provider whose generator copies
+    // names+values from the NativeModuleEntry at parse time.
+    auto generator = [state, keyUtf8](JSC::JSGlobalObject* go,
+                                      JSC::Identifier,
+                                      WTF::Vector<JSC::Identifier, 4>& exportNames,
+                                      JSC::MarkedArgumentBuffer& exportValues) {
+        JSC::VM& vmInner = go->vm();
+        std::lock_guard<std::mutex> lock(state->modulesMutex);
+        auto it = state->nativeModules.find(keyUtf8);
+        if (it == state->nativeModules.end()) return;
+        for (const auto& [name, value] : it->second->exports) {
+            exportNames.append(JSC::Identifier::fromString(vmInner, WTF::String::fromUTF8(name.c_str())));
+            exportValues.append(::toJS(go, value.GetRef()));
+        }
+    };
+
+    WTF::String moduleURLString = WTF::makeString("ejsc-native://"_s, keyStr);
+    WTF::URL moduleURL(moduleURLString);
+    JSC::SourceOrigin sourceOrigin(moduleURL);
+
+    auto provider = JSC::SyntheticSourceProvider::create(std::move(generator), sourceOrigin, moduleURLString);
+    JSC::SourceCode sourceCode(std::move(provider));
+
+    promise->resolve(globalObject, JSC::JSSourceCode::create(vm, std::move(sourceCode)));
     return promise;
 }
 
@@ -121,8 +150,7 @@ JSC::JSValue ModuleLoaderEvaluate(JSC::JSGlobalObject* globalObject,
                                   JSC::JSValue scriptFetcher,
                                   JSC::JSValue sentValue,
                                   JSC::JSValue resumeMode) {
-    // For source-based modules (including the main module provided via
-    // loadAndEvaluateModule), JSC's default evaluator is what we want.
+    // Default evaluator handles both source-based and synthetic module records.
     return moduleLoader->evaluateNonVirtual(globalObject, key, moduleRecord,
                                             scriptFetcher, sentValue, resumeMode);
 }

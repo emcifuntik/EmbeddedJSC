@@ -203,16 +203,17 @@ JSC has no public "synthetic module" C API. Plan:
 - [x] **3. `Runtime` + `Context` + plain script `Eval`; `examples/hello` passes**
 - [x] **4. `Value` primitives + function binding via `JSObjectMakeFunctionWithCallback` + callback registry**
 - [x] **5. Add `vcpkg` as a git submodule (Microsoft/vcpkg); switch CMakePresets to in-tree toolchain**
-- [ ] **6. ES module evaluation path with `moduleLoaderResolve/fetch/evaluate` (source-based first)**
-- [ ] **7. Spike: pick exact synthetic-module API in this JSC version; commit findings**
-- [ ] **8. `ModuleBuilder` + `Context::NewModule` + synthetic-module dispatch in loader**
-- [ ] **9. `examples/native_module` passes (`import { add, sub } from 'math'`)**
-- [ ] **10. Minimal tests + README**
+- [x] **6. ES module evaluation path with `moduleLoaderResolve/fetch/evaluate` (source-based first)**
+- [x] **7. Spike: pick exact synthetic-module API in this JSC version; commit findings**
+- [x] **8. `ModuleBuilder` + `Context::NewModule` + synthetic-module dispatch in loader**
+- [x] **9. `examples/native_module` passes (`import { add, sub } from 'math'`)**
+- [ ] **10. Polish README + tighten docs**
 
 ### Progress notes
 
 - 2026-05-26: Library builds clean with clang-cl x64-windows-static. `ejsc_hello.exe` prints `hello, ejsc` / `result = 3`. `ejsc_test_eval.exe` passes 4/4 assertions (arithmetic, string concat, native-function call, exception capture). Native-module import currently rejects with "native module fetch unimplemented" — that's the work in steps 7–8.
 - 2026-05-27: `vcpkg` added as a git submodule pinned at `e03dc9b29710050cd1018bc5674688108658d327` (vcpkg 2026.04.27-438). `cmake --preset windows-debug` configures, builds, and runs against the in-tree submodule. Tests still 4/4.
+- 2026-05-27: Synthetic modules **working**. Mechanism: in the loader's `Fetch` hook, when the requested key matches a registered native module, return a `JSSourceCode` backed by a `JSC::SyntheticSourceProvider` whose generator fills `exportNames` / `exportValues` from the `NativeModuleEntry`. JSC's `moduleLoaderParseModule` already routes `SourceProviderSourceType::Synthetic` to `SyntheticModuleRecord::tryCreateWithExportNamesAndValues`. Zero JS bootstrap. `examples/native_module` prints `add(2,3) = 5` and `sub(10,4) = 6`. `test_eval` now covers `import { add } from 'math'` (5/5 passing).
 
 ## Verification
 
