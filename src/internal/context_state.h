@@ -1,0 +1,50 @@
+#pragma once
+
+#include "synthetic_module.h"
+
+#include <memory>
+#include <mutex>
+#include <string>
+#include <unordered_map>
+
+#include <JavaScriptCore/JSBase.h>
+
+// Forward-declared JSC++ types (full headers included in TUs that need them).
+namespace JSC {
+class JSGlobalObject;
+class VM;
+}
+
+namespace ejsc::internal {
+
+// Per-Context internal state. Owned by ejsc::Context via unique_ptr.
+struct ContextState {
+    // VM is held alive via the explicit ref taken in Context's constructor;
+    // the destructor balances it.
+    JSC::VM* vm = nullptr;
+    JSC::JSGlobalObject* globalObject = nullptr;
+
+    // C-API global context ref (borrowed; lives as long as the VM/global do).
+    // Cached so other TUs don't have to round-trip through APICast helpers.
+    JSGlobalContextRef ctxRef = nullptr;
+
+    // Last exception thrown out of an Eval/Call. JSValueProtect'd; cleared on
+    // TakeException.
+    const struct OpaqueJSValue* pendingException = nullptr;
+
+    // Native modules registered on this context, keyed by module name.
+    std::unordered_map<std::string, std::unique_ptr<NativeModuleEntry>> nativeModules;
+
+    // Per-context guard for nativeModules.
+    std::mutex modulesMutex;
+};
+
+// Look up the ContextState for a given JSGlobalObject (registered/unregistered
+// when a Context is constructed/destroyed).
+ContextState* StateForGlobalObject(JSC::JSGlobalObject* globalObject);
+
+// Registration helpers used by Context's ctor/dtor.
+void RegisterContextState(JSC::JSGlobalObject* globalObject, ContextState* state);
+void UnregisterContextState(JSC::JSGlobalObject* globalObject);
+
+} // namespace ejsc::internal

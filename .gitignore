@@ -1,0 +1,8 @@
+BUILD/
+BIN/
+LIB/
+vcpkg_installed/
+.vs/
+.vscode/
+*.user
+CMakeUserPresets.json
