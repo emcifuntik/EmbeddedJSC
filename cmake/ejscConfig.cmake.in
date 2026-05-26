@@ -1,0 +1,20 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+find_dependency(JavaScriptCore CONFIG)
+
+include("${CMAKE_CURRENT_LIST_DIR}/ejscTargets.cmake")
+
+# JSC headers require cmakeconfig.h to be force-included on every TU touching
+# them. The header's path depends on where vcpkg installed JavaScriptCore for
+# the consumer, so we resolve it here at consumer configure time rather than
+# baking it into the exported target.
+find_file(_EJSC_JSC_CMAKE_CONFIG_FILE NAMES cmakeconfig.h)
+if(NOT _EJSC_JSC_CMAKE_CONFIG_FILE)
+    message(FATAL_ERROR
+        "ejsc: could not locate cmakeconfig.h from JavaScriptCore.\n"
+        "find_file(JSC_CMAKE_CONFIG_FILE NAMES cmakeconfig.h) must succeed; "
+        "make sure find_package(JavaScriptCore CONFIG) has set up its include paths.")
+endif()
+set_property(TARGET ejsc::ejsc APPEND PROPERTY
+    INTERFACE_COMPILE_OPTIONS "/FI${_EJSC_JSC_CMAKE_CONFIG_FILE}")

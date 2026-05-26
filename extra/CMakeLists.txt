@@ -6,6 +6,7 @@ add_library(ejsc::extra ALIAS ejsc_extra)
 target_include_directories(ejsc_extra
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 
 target_link_libraries(ejsc_extra PUBLIC ejsc::ejsc)
