@@ -5,6 +5,13 @@ find_dependency(JavaScriptCore CONFIG)
 
 include("${CMAKE_CURRENT_LIST_DIR}/ejscTargets.cmake")
 
+# Re-create the local `ejsc::extra` alias (CMake's install/export emits the
+# target with its underscore name, `ejsc::ejsc_extra`, but the in-tree alias
+# and the docs use `ejsc::extra`).
+if(TARGET ejsc::ejsc_extra AND NOT TARGET ejsc::extra)
+    add_library(ejsc::extra ALIAS ejsc::ejsc_extra)
+endif()
+
 # JSC headers require cmakeconfig.h to be force-included on every TU touching
 # them. The header's path depends on where vcpkg installed JavaScriptCore for
 # the consumer, so we resolve it here at consumer configure time rather than
