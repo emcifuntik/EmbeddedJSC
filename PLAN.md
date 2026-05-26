@@ -207,7 +207,7 @@ JSC has no public "synthetic module" C API. Plan:
 - [x] **7. Spike: pick exact synthetic-module API in this JSC version; commit findings**
 - [x] **8. `ModuleBuilder` + `Context::NewModule` + synthetic-module dispatch in loader**
 - [x] **9. `examples/native_module` passes (`import { add, sub } from 'math'`)**
-- [ ] **10. Polish README + tighten docs**
+- [x] **10. Polish README + tighten docs**
 
 ### Progress notes
 
