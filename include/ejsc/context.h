@@ -43,6 +43,15 @@ public:
     bool  HasException() const;
     Value TakeException();
 
+    // Escape hatch for embedders that want to call into the JSC C API
+    // directly (e.g. JSObjectMake with a custom JSClass, JSValueProtect on
+    // an externally-owned ref, etc.).
+    //
+    // Returned as `void*` to avoid pulling <JavaScriptCore/JSBase.h> into
+    // every consumer that #includes <ejsc/context.h>. Cast to
+    // `JSGlobalContextRef` (a typedef defined in JSBase.h) in TUs that need it.
+    void* RawGlobalContextRef() const noexcept;
+
     // Internal accessors
     internal::ContextState* State() noexcept { return m_state.get(); }
     const internal::ContextState* State() const noexcept { return m_state.get(); }

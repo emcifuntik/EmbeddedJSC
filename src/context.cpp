@@ -218,6 +218,14 @@ Value Context::GetGlobal(std::string_view name) {
     return Value::Adopt(*this, v);
 }
 
+void* Context::RawGlobalContextRef() const noexcept {
+    // JSGlobalContextRef is `const struct OpaqueJSContext*` (JSC's typedef
+    // convention). The pointee is opaque, so the const is informational —
+    // strip it so embedders get a plain void* they can cast back.
+    return m_state ? const_cast<void*>(reinterpret_cast<const void*>(m_state->ctxRef))
+                   : nullptr;
+}
+
 void Context::DrainMicrotasks() {
     auto* s = m_state.get();
     JSC::JSLockHolder locker(*s->vm);
