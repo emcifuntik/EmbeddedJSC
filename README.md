@@ -1,5 +1,7 @@
 # EmbeddedJSC
 
+![EmbeddedJSC Banner](assets/banner.png)
+
 A C++ embedding library for WebKit's JavaScriptCore aimed at a
 QuickJS-class developer experience: register native functions, declare
 native ES modules, evaluate scripts — all from C++, with **zero JS
@@ -15,12 +17,20 @@ Working today:
 - `Runtime` / `Context` lifecycle with per-context VM + global object.
 - `Value`: primitives, object property access, calls, native function
   binding via a JSClass closure.
-- `Eval` (script) and `EvalModule` (source ES module).
+- `Eval` (script) and `EvalModule` (source ES module). `EvalModule`
+  reliably returns the module namespace so hosts can hold it and call
+  exported functions per frame.
 - **Native synthetic modules.** `import { foo } from 'mymod'` resolves
   to a C++ lambda — the library uses JSC's `SyntheticSourceProvider`
   so no JS source is parsed or generated for the bridge.
+- **C++ class binding.** `Context::NewClass<T>("Foo")` exposes a C++
+  type to JS as a JS-side constructor with methods. Supports both
+  JS-owned (`cls.New(...)`) and embedder-owned (`cls.Wrap(ptr)`)
+  instances.
+- Optional helper `ejsc::extra::TimerManager` for `setTimeout` /
+  `setInterval` / `clearTimeout` / `clearInterval` driven from a tick loop.
 
-Examples and `tests/test_eval` (5/5) cover all of the above.
+Examples and `tests/test_eval` (7/7) cover all of the above.
 
 ## Build (Windows, clang-cl)
 
@@ -48,6 +58,8 @@ Artifacts land in `BIN/Debug/`:
   containing `test.js` (CMake copies it next to the executable).
 - `ejsc_timers.exe` — drives the optional `ejsc::extra::TimerManager`
   helper with `setTimeout` / `setInterval` / `clearInterval`.
+- `ejsc_classes.exe` — binds a `Vec3` C++ type to JS, demonstrates
+  `new Vec3(...)` (JS-owned), `Wrap(...)` (host-owned), and `Unwrap()`.
 - `ejsc_test_eval.exe` — assertion-based test runner.
 
 ## API at a glance
@@ -120,5 +132,6 @@ No JS strings, no `export const x = …` stubs.
   optional `ejsc::extra::TimerManager` is a reference implementation that
   ships under [extra/](extra/).
 - Promise rejection tracking, async stack tooling.
-- Class binding API with prototype chains.
+- Accessor properties on bound classes (use `getX()` / `setX()` methods for now).
+- Class inheritance / static methods.
 - TypedArray / ArrayBuffer helpers.

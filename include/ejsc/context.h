@@ -12,6 +12,8 @@ namespace ejsc {
 
 namespace internal { struct ContextState; }
 
+template<typename T> class ClassBuilder;
+
 class Context {
 public:
     Context();
@@ -23,6 +25,12 @@ public:
     Context& operator=(Context&& other) noexcept;
 
     ModuleBuilder NewModule(std::string_view name);
+
+    // Register a C++ class. Returns a builder; chain Constructor()/Method()
+    // calls and finish with Build(). The full definition lives in
+    // <ejsc/class.h> — include that to instantiate this template.
+    template<typename T>
+    ClassBuilder<T> NewClass(std::string_view name);
 
     Value Eval(std::string_view code, std::string_view filename = "<eval>");
     Value EvalModule(std::string_view code, std::string_view key);

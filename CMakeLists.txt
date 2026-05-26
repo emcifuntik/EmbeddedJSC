@@ -33,6 +33,7 @@ add_library(ejsc STATIC
     src/internal/global_object_table.cpp
     src/internal/module_loader.cpp
     src/internal/synthetic_module.cpp
+    src/internal/class_bridge.cpp
 )
 add_library(ejsc::ejsc ALIAS ejsc)
 
@@ -85,6 +86,7 @@ if(EJSC_BUILD_EXAMPLES)
     add_subdirectory(examples/hello)
     add_subdirectory(examples/native_module)
     add_subdirectory(examples/timers)
+    add_subdirectory(examples/classes)
 endif()
 
 if(EJSC_BUILD_TESTS)

@@ -6,6 +6,7 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include <JavaScriptCore/JSBase.h>
 
@@ -16,6 +17,8 @@ class VM;
 }
 
 namespace ejsc::internal {
+
+struct ClassData;   // defined in class_bridge.h
 
 // Per-Context internal state. Owned by ejsc::Context via unique_ptr.
 struct ContextState {
@@ -43,6 +46,11 @@ struct ContextState {
 
     // Per-context guard for nativeModules.
     std::mutex modulesMutex;
+
+    // Classes registered via Context::NewClass<T>. Owned here so the
+    // ClassData lives at least as long as the Context — instances created
+    // before the embedder's Class<T> handle goes out of scope keep working.
+    std::vector<std::unique_ptr<ClassData>> classes;
 };
 
 // Look up the ContextState for a given JSGlobalObject (registered/unregistered

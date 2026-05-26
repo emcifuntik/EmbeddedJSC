@@ -11,13 +11,14 @@ this document is the full reference an embedder needs.
 3. [Lifetime and ownership](#lifetime-and-ownership)
 4. [Binding native functions](#binding-native-functions)
 5. [Native ES modules](#native-es-modules)
-6. [Calling JS from C++](#calling-js-from-c)
-7. [Per-frame integration (game loops)](#per-frame-integration-game-loops)
-8. [Microtasks](#microtasks)
-9. [Timers — you must implement these](#timers--you-must-implement-these)
-10. [Exception handling](#exception-handling)
-11. [Threading and re-entrancy](#threading-and-re-entrancy)
-12. [What is intentionally not provided](#what-is-intentionally-not-provided)
+6. [Binding C++ classes](#binding-c-classes)
+7. [Calling JS from C++](#calling-js-from-c)
+8. [Per-frame integration (game loops)](#per-frame-integration-game-loops)
+9. [Microtasks](#microtasks)
+10. [Timers — you must implement these](#timers--you-must-implement-these)
+11. [Exception handling](#exception-handling)
+12. [Threading and re-entrancy](#threading-and-re-entrancy)
+13. [What is intentionally not provided](#what-is-intentionally-not-provided)
 
 ---
 
@@ -142,6 +143,96 @@ A few rules:
 - Modules registered after `EvalModule` has already imported them are not
   re-imported. Register before you evaluate.
 - Exports of any `Value` type are fine — objects, functions, primitives.
+
+## Binding C++ classes
+
+Sometimes you want JS to construct, inspect, and pass around your own C++
+types — game entities, vectors, components. `Context::NewClass<T>()` builds
+a JS constructor backed by a C++ type:
+
+```cpp
+struct Vec3 { double x, y, z; };
+
+auto Vec3Cls = ctx.NewClass<Vec3>("Vec3")
+    .Constructor([](ejsc::Context&, std::span<const ejsc::Value> args) -> Vec3* {
+        auto* v = new Vec3;
+        if (args.size() > 0) v->x = args[0].ToNumber().value_or(0.0);
+        if (args.size() > 1) v->y = args[1].ToNumber().value_or(0.0);
+        if (args.size() > 2) v->z = args[2].ToNumber().value_or(0.0);
+        return v;
+    })
+    .Method("length", [](Vec3& self, ejsc::Context& c, auto) {
+        return ejsc::Value::Number(c,
+            std::sqrt(self.x * self.x + self.y * self.y + self.z * self.z));
+    })
+    .Build();
+
+ctx.SetGlobal("Vec3", Vec3Cls.ConstructorValue());
+
+ctx.Eval("const v = new Vec3(1, 2, 2); print(v.length())", "main.js");
+// prints: 3
+```
+
+### Ownership
+
+There are two ways an instance can enter the JS world:
+
+| Source            | Owner                  | Finalize behaviour                        |
+|-------------------|------------------------|--------------------------------------------|
+| `new Foo(...)` from JS, or `cls.New(...)` | JS-owned (GC) | `delete static_cast<T*>(ptr)` runs |
+| `cls.Wrap(ptr)`   | Embedder               | Finalizer does **not** delete              |
+
+`Wrap` is what you want for objects the host already owns — a player entity,
+a system singleton, a game world. The C++ object must outlive every JS
+handle that references it; otherwise the JS side will be holding a dangling
+pointer.
+
+### From the C++ side
+
+```cpp
+// Hand a C++-owned object to JS.
+Vec3 playerPos{ 100, 200, 50 };
+ctx.SetGlobal("playerPos", Vec3Cls.Wrap(&playerPos));
+
+// Create a new JS-owned instance from C++ and pass it around.
+auto v = Vec3Cls.New({ ejsc::Value::Number(ctx, 1),
+                       ejsc::Value::Number(ctx, 2),
+                       ejsc::Value::Number(ctx, 2) });
+
+// Unwrap a Value that came back from JS.
+auto wrapped = ctx.GetGlobal("playerPos");
+if (Vec3* p = Vec3Cls.Unwrap(wrapped)) {
+    p->x += 1.0;     // mutations are visible to JS
+}
+
+// Type-check without unwrapping.
+if (Vec3Cls.IsInstance(someValue)) { /* ... */ }
+```
+
+### Method `this`
+
+A bound method that's called with the wrong `this` (e.g.
+`obj.method.call({})`) raises a JS `Error` whose message identifies the
+expected class and method name. Native callbacks throwing a `std::exception`
+inside a method follow the same conversion as plain native functions —
+they surface as JS errors with the C++ message.
+
+### Lifetime of the class itself
+
+The `Class<T>` handle is cheap to copy and doesn't own the class
+registration. `ClassData` lives on the Context, so JS can keep instantiating
+`new Foo()` long after the `Class<T>` C++ handle has gone out of scope.
+Registration ends when the Context is destroyed.
+
+### Not in v1
+
+- **Accessor properties** (getter/setter pairs accessed as `v.x` instead of
+  `v.x()`). Use method-style `getX()` / `setX()` for now.
+- **Inheritance.** Each `Class<T>` is independent; there's no parent-class
+  registration.
+- **Static / class-level methods.** Attach them to the constructor function
+  with `Vec3Cls.ConstructorValue().SetProperty("staticName", fn)` after
+  building, if you need them.
 
 ## Calling JS from C++
 

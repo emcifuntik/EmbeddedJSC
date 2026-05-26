@@ -2,6 +2,7 @@
 #include "ejsc/error.h"
 #include "ejsc/value.h"
 
+#include "internal/class_bridge.h"
 #include "internal/context_state.h"
 #include "internal/global_object_table.h"
 #include "internal/module_loader.h"
@@ -107,6 +108,11 @@ Context::~Context() {
         std::lock_guard<std::mutex> lock(s->modulesMutex);
         s->nativeModules.clear();
     }
+
+    // Release registered classes. This drops the prototype and constructor
+    // Values and releases the JSClassRefs; instances still on the heap will
+    // get their finalizer called when JSC tears the heap down.
+    s->classes.clear();
 
     s->vm->drainMicrotasks();
 

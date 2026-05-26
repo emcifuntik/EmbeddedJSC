@@ -71,7 +71,58 @@ int main() {
         assert(cap.ToNumber().value() == 42.0);
     }
 
-    // 6. EvalModule returns a callable namespace for the host (gamedev case).
+    // 6. Class binding: New / methods / Unwrap / Wrap.
+    {
+        struct Box { int v; };
+
+        auto rtX = ejsc::Runtime{};
+        auto cx  = rtX.NewContext();
+
+        auto BoxCls = cx.NewClass<Box>("Box")
+            .Constructor([](ejsc::Context&, std::span<const ejsc::Value> args) -> Box* {
+                auto* b = new Box;
+                if (!args.empty()) b->v = (int)args[0].ToNumber().value_or(0);
+                return b;
+            })
+            .Method("get", [](Box& self, ejsc::Context& c, auto) {
+                return ejsc::Value::Number(c, self.v);
+            })
+            .Method("set", [](Box& self, ejsc::Context& c, auto args) {
+                self.v = (int)args[0].ToNumber().value_or(0);
+                return ejsc::Value::Undefined(c);
+            })
+            .Build();
+
+        // JS-side construction.
+        cx.SetGlobal("Box", BoxCls.ConstructorValue());
+        auto r1 = cx.Eval("const b = new Box(7); b.set(b.get() + 35); b.get()", "cls-1");
+        assert(!cx.HasException());
+        assert(r1.IsNumber() && r1.ToNumber().value() == 42.0);
+
+        // C++-side New + Unwrap.
+        auto v = BoxCls.New({ ejsc::Value::Number(cx, 11.0) });
+        assert(BoxCls.IsInstance(v));
+        Box* unwrapped = BoxCls.Unwrap(v);
+        assert(unwrapped && unwrapped->v == 11);
+
+        // C++-side Wrap on a host-owned object — mutations are visible from JS.
+        Box host{ 1 };
+        cx.SetGlobal("host", BoxCls.Wrap(&host));
+        cx.Eval("host.set(host.get() + 99)", "cls-2");
+        assert(!cx.HasException());
+        assert(host.v == 100);
+
+        // Cross-class type check: Unwrap on a non-instance returns nullptr.
+        auto strVal = ejsc::Value::String(cx, "not a box");
+        assert(BoxCls.Unwrap(strVal) == nullptr);
+
+        // Calling a method with the wrong `this` raises an exception.
+        cx.Eval("({}).__proto__ = Box.prototype; b.get.call({})", "cls-3");
+        assert(cx.HasException());
+        (void)cx.TakeException();
+    }
+
+    // 7. EvalModule returns a callable namespace for the host (gamedev case).
     //    Caller can hold the namespace, then call exported functions per frame.
     {
         auto rt3 = ejsc::Runtime{};
